@@ -13,7 +13,7 @@ CREDS = ServiceAccountCredentials.from_json_keyfile_dict(service_account_info, S
 CLIENT = gspread.authorize(CREDS)
 
 # Replace with your Google Sheet name
-SHEET_NAME = "Diagnosis_Records"
+SHEET_NAME = "symptom_records"
 sheet = CLIENT.open(SHEET_NAME).sheet1
 
 # ---------- APP TITLE ----------
@@ -127,3 +127,4 @@ if submitted:
 # ---------- FOOTER ----------
 st.markdown("---")
 st.caption("⚠️ This tool is for educational/demo purposes only. It does not replace professional medical advice.")
+
