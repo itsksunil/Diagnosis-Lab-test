@@ -1,8 +1,6 @@
 import streamlit as st
-import pandas as pd
-from oauth2client.service_account import ServiceAccountCredentials
 import gspread
-import json
+from oauth2client.service_account import ServiceAccountCredentials
 
 # ---------- GOOGLE SHEETS CONNECTION ----------
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -67,15 +65,27 @@ with st.form("user_form"):
     ]
 
     # Viral Disease Symptoms
-    viral_symptoms = [
-        "High fever",
-        "Chills / Sweating",
-        "Body pain / Joint pain",
-        "Rash",
-        "Nausea / Vomiting",
-        "Headache",
-        "Weakness / Fatigue",
+    viral_fever_symptoms = [
+        "High fever", "Chills / Sweating", "Headache", "Weakness / Fatigue",
+        "Body pain / Muscle ache", "Loss of appetite", "Nausea / Vomiting"
     ]
+
+    typhoid_symptoms = [
+        "High fever", "Weakness / Fatigue", "Abdominal pain", "Diarrhea / Constipation",
+        "Loss of appetite", "Headache", "Rash (rose spots)"
+    ]
+
+    malaria_symptoms = [
+        "High fever with chills", "Sweating", "Fatigue", "Headache",
+        "Nausea / Vomiting", "Muscle pain", "Jaundice"
+    ]
+
+    jaundice_symptoms = [
+        "Yellowing of skin / eyes", "Dark urine", "Pale stools", "Fatigue",
+        "Nausea / Vomiting", "Abdominal pain (upper right)"
+    ]
+
+    viral_symptoms_all = list(set(viral_fever_symptoms + typhoid_symptoms + malaria_symptoms + jaundice_symptoms))
 
     # Heart Attack Symptoms
     heart_symptoms = [
@@ -87,21 +97,20 @@ with st.form("user_form"):
         "Dizziness / fainting",
     ]
 
-    # Gender-based symptom filtering
+    # Gender-based symptom selection
     symptoms_selected = st.multiselect("Select Symptoms", common_symptoms)
     if gender == "Male":
         symptoms_selected += st.multiselect("Male-specific Symptoms", male_symptoms)
     else:
         symptoms_selected += st.multiselect("Female-specific Symptoms", female_symptoms)
 
-    symptoms_selected += st.multiselect("Viral Disease Symptoms", viral_symptoms)
+    symptoms_selected += st.multiselect("Viral Disease Symptoms", viral_symptoms_all)
     symptoms_selected += st.multiselect("Heart Attack Symptoms", heart_symptoms)
 
     submitted = st.form_submit_button("🔍 Diagnose")
 
 # ---------- DIAGNOSIS LOGIC ----------
 def diagnose(symptoms, gender):
-    """Basic rule-based diagnosis."""
     possible = []
     organ_mapping = []
 
@@ -138,16 +147,19 @@ def diagnose(symptoms, gender):
             organ_mapping.append("Ovaries / Cervix")
 
     # Viral Diseases
-    if any(s in symptoms for s in ["High fever", "Chills / Sweating", "Body pain / Joint pain", "Rash"]):
-        if "Rash" in symptoms:
-            possible.append("Dengue")
-            organ_mapping.append("Blood / Immune System")
-        elif "Joint pain" in symptoms:
-            possible.append("Chikungunya / Malaria")
-            organ_mapping.append("Blood / Joints / Liver")
+    if any(s in symptoms for s in viral_symptoms_all):
+        if any(s in symptoms for s in malaria_symptoms):
+            possible.append("Malaria")
+            organ_mapping.append("Blood / Liver / Spleen")
+        elif any(s in symptoms for s in typhoid_symptoms):
+            possible.append("Typhoid")
+            organ_mapping.append("Digestive System / Liver")
+        elif any(s in symptoms for s in jaundice_symptoms):
+            possible.append("Jaundice / Hepatitis")
+            organ_mapping.append("Liver / Gallbladder")
         else:
-            possible.append("Viral Infection (Typhoid / Flu)")
-            organ_mapping.append("Digestive / Immune System")
+            possible.append("Viral Fever / Flu")
+            organ_mapping.append("Immune System / Whole Body")
 
     # Heart Attack
     if any(s in symptoms for s in heart_symptoms):
