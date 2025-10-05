@@ -10,7 +10,12 @@ service_account_info = st.secrets["google_service_account"]
 CREDS = ServiceAccountCredentials.from_json_keyfile_dict(service_account_info, SCOPE)
 CLIENT = gspread.authorize(CREDS)
 SHEET_NAME = "symptom_records"
-sheet = CLIENT.open(SHEET_NAME).sheet1
+
+# Get the worksheet
+try:
+    sheet = CLIENT.open(SHEET_NAME).sheet1
+except Exception as e:
+    st.error(f"Error connecting to Google Sheets: {e}")
 
 # ---------- APP TITLE ----------
 st.set_page_config(page_title="Advanced Symptom-Based Disease Checker", page_icon="🏥", layout="wide")
@@ -290,17 +295,40 @@ if submitted:
         all_symptoms = selected_basic + selected_respiratory + selected_digestive + selected_neurological + selected_skin + selected_cancer + selected_heart
         condition_list = [f"{cond} ({risk})" for cond, sys, risk in conditions]
         
+        # Prepare data row in exact column order
         data = [
-            entry_time, name, age, gender, mobile, bp, diabetes, heart, thyroid, 
-            asthma, kidney, liver, cancer_history, location, weight, height,
-            ", ".join(all_symptoms), symptom_duration, severity,
-            smoking, alcohol, exercise, ", ".join(condition_list),
-            ", ".join(risk_factors), f"{risk_score:.1f}%", f"{bmi_value:.1f}", bmi_category
+            entry_time,                    # 1. Timestamp
+            name,                          # 2. Full Name
+            age,                           # 3. Age
+            gender,                        # 4. Gender
+            mobile,                        # 5. Mobile Number
+            bp,                            # 6. High Blood Pressure
+            diabetes,                      # 7. Diabetes
+            heart,                         # 8. Heart Issues
+            thyroid,                       # 9. Thyroid Issues
+            asthma,                        # 10. Asthma/Respiratory Issues
+            kidney,                        # 11. Kidney Disease
+            liver,                         # 12. Liver Disease
+            cancer_history,                # 13. Family History of Cancer
+            location,                      # 14. Location/City
+            weight,                        # 15. Weight (kg)
+            height,                        # 16. Height (cm)
+            ", ".join(all_symptoms),       # 17. All Symptoms
+            symptom_duration,              # 18. Symptom Duration
+            severity,                      # 19. Symptom Severity
+            smoking,                       # 20. Smoking
+            alcohol,                       # 21. Alcohol Consumption
+            exercise,                      # 22. Exercise Frequency
+            ", ".join(condition_list),     # 23. Detected Conditions
+            ", ".join(risk_factors),       # 24. Risk Factors
+            f"{risk_score:.1f}%",          # 25. Risk Score
+            f"{bmi_value:.1f}",            # 26. BMI Value
+            bmi_category                   # 27. BMI Category
         ]
         
         try:
             sheet.append_row(data)
-            st.success("✅ Your response has been recorded securely.")
+            st.success("✅ Your response has been recorded securely in our database.")
         except Exception as e:
             st.error(f"⚠️ Could not save to database: {str(e)}")
 
