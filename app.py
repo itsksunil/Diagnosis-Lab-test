@@ -758,4 +758,58 @@ with st.sidebar:
         
         # Show feature importance if available
         if ml_predictor.model is not None:
-            with st.exp
+            with st.expander("View Feature Importance"):
+                importance_df = ml_predictor.get_feature_importance()
+                if importance_df is not None:
+                    st.dataframe(importance_df.head(10))
+    
+    st.header("🌡️ Fever Type Guide")
+    fever_guide = {
+        "Normal Fever": ["Mild fever", "Headache", "Body pain"],
+        "Viral Fever": ["High fever", "Fatigue", "Weakness", "Loss of appetite"],
+        "Dengue": ["High fever (104°F+)", "Eye pain", "Joint pain", "Skin rash"],
+        "Malaria": ["Intermittent fever", "Fever with chills", "Sweating"],
+        "Typhoid": ["Persistent high fever", "Abdominal pain", "Diarrhea/constipation", "Weakness"],
+        "Tuberculosis": ["Persistent cough", "Night sweats", "Weight loss", "Fever"]
+    }
+    
+    for fever_type, symptoms in fever_guide.items():
+        with st.expander(f"{fever_type}"):
+            for symptom in symptoms:
+                st.write(f"• {symptom}")
+    
+    st.header("🦠 TB Symptoms Guide")
+    st.write("""
+    Major TB Symptoms:
+    • Cough lasting >3 weeks
+    • Coughing up blood
+    • Night sweats
+    • Unexplained weight loss
+    
+    Minor TB Symptoms:
+    • Intermittent fever
+    • Loss of appetite
+    • Fatigue
+    • Chest pain
+    """)
+    
+    st.header("🚨 Emergency Symptoms")
+    st.write("""
+    Seek immediate medical care for:
+    - Fever above 104°F
+    - Difficulty breathing
+    - Severe abdominal pain
+    - Persistent vomiting
+    - Confusion or dizziness
+    - Fever with skin rash
+    - Coughing up blood
+    - Chest pain with breathing
+    """)
+
+# ---------- FOOTER ----------
+st.markdown("---")
+st.caption("""
+⚠️ **Disclaimer**: This tool is for educational and informational purposes only. 
+It does not provide medical advice, diagnosis, or treatment. For fever or serious symptoms, 
+always consult with qualified healthcare professionals.
+""")
