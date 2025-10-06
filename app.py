@@ -3,759 +3,434 @@ from oauth2client.service_account import ServiceAccountCredentials
 import gspread
 from datetime import datetime
 import pandas as pd
-import numpy as np
-import pickle
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score, classification_report
-import warnings
-warnings.filterwarnings('ignore')
 
-# ---------- GOOGLE SHEETS CONNECTION ----------
+# ---------- गूगल शीट कनेक्शन ----------
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 service_account_info = st.secrets["google_service_account"]
 CREDS = ServiceAccountCredentials.from_json_keyfile_dict(service_account_info, SCOPE)
 CLIENT = gspread.authorize(CREDS)
 SHEET_NAME = "symptom_records"
 
-# Get the worksheet
+# वर्कशीट प्राप्त करें
 try:
     sheet = CLIENT.open(SHEET_NAME).sheet1
 except Exception as e:
-    st.error(f"Error connecting to Google Sheets: {e}")
+    st.error(f"गूगल शीट से कनेक्ट होने में त्रुटि: {e}")
 
-# ---------- MACHINE LEARNING MODEL SETUP ----------
-class SymptomPredictor:
-    def __init__(self):
-        self.model = None
-        self.label_encoder = LabelEncoder()
-        self.symptom_features = []
-        self.is_trained = False
-        
-    def prepare_training_data(self):
-        """Create synthetic training data for demonstration"""
-        # This would normally come from your historical data
-        np.random.seed(42)
-        
-        # Define features (symptoms)
-        self.symptom_features = [
-            'Fever', 'Cough', 'Shortness_of_breath', 'Chest_pain', 'Fatigue',
-            'Headache', 'Muscle_pain', 'Loss_of_appetite', 'Weight_loss',
-            'Night_sweats', 'Chills', 'Nausea', 'Diarrhea', 'Abdominal_pain',
-            'Joint_pain', 'Rash', 'Sore_throat', 'Runny_nose', 'Wheezing',
-            'Cough_blood', 'Persistent_cough', 'Age', 'Smoking', 'Diabetes'
-        ]
-        
-        n_samples = 1000
-        X = np.random.randint(0, 2, (n_samples, len(self.symptom_features)))
-        
-        # Create realistic disease patterns
-        diseases = ['Healthy', 'Viral_Fever', 'Tuberculosis', 'Dengue', 'Malaria', 
-                   'Typhoid', 'Respiratory_Infection', 'Gastroenteritis']
-        
-        y = []
-        for i in range(n_samples):
-            symptoms = X[i]
-            
-            # TB pattern
-            if symptoms[9] == 1 and symptoms[8] == 1 and symptoms[20] == 1:  # Night sweats, weight loss, persistent cough
-                y.append('Tuberculosis')
-            # Dengue pattern
-            elif symptoms[0] == 1 and symptoms[5] == 1 and symptoms[15] == 1:  # Fever, headache, rash
-                y.append('Dengue')
-            # Malaria pattern
-            elif symptoms[0] == 1 and symptoms[10] == 1 and symptoms[1] == 0:  # Fever, chills, no cough
-                y.append('Malaria')
-            # Typhoid pattern
-            elif symptoms[0] == 1 and symptoms[7] == 1 and symptoms[13] == 1:  # Fever, loss of appetite, abdominal pain
-                y.append('Typhoid')
-            # Viral fever pattern
-            elif symptoms[0] == 1 and symptoms[4] == 1 and symptoms[5] == 1:  # Fever, fatigue, headache
-                y.append('Viral_Fever')
-            # Respiratory infection
-            elif symptoms[1] == 1 and symptoms[2] == 1 and symptoms[3] == 1:  # Cough, shortness of breath, chest pain
-                y.append('Respiratory_Infection')
-            # Gastroenteritis
-            elif symptoms[12] == 1 and symptoms[13] == 1 and symptoms[11] == 1:  # Diarrhea, abdominal pain, nausea
-                y.append('Gastroenteritis')
-            else:
-                y.append('Healthy')
-        
-        self.X = X
-        self.y = self.label_encoder.fit_transform(y)
-        return X, self.y
-    
-    def train_model(self):
-        """Train the Random Forest model"""
-        X, y = self.prepare_training_data()
-        
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
-        
-        # Train model
-        self.model = RandomForestClassifier(
-            n_estimators=100,
-            max_depth=10,
-            min_samples_split=5,
-            min_samples_leaf=2,
-            random_state=42
-        )
-        
-        self.model.fit(X_train, y_train)
-        
-        # Evaluate
-        y_pred = self.model.predict(X_test)
-        accuracy = accuracy_score(y_test, y_pred)
-        
-        self.is_trained = True
-        return accuracy
-    
-    def predict(self, symptoms_dict, age, smoking, diabetes):
-        """Predict disease based on symptoms"""
-        if not self.is_trained:
-            st.warning("Model not trained. Training now...")
-            self.train_model()
-        
-        # Prepare input features
-        input_features = np.zeros(len(self.symptom_features))
-        
-        # Map symptoms to features
-        symptom_mapping = {
-            'Fever': 'Fever',
-            'Chills': 'Chills',
-            'Sweating': 'Chills',
-            'Increased body temperature': 'Fever',
-            'Intermittent fever': 'Fever',
-            'High fever (104°F+)': 'Fever',
-            'Mild fever (100-101°F)': 'Fever',
-            'Night sweats': 'Night_sweats',
-            'Morning fever': 'Fever',
-            'Fatigue': 'Fatigue',
-            'Headache': 'Headache',
-            'Nausea': 'Nausea',
-            'Vomiting': 'Nausea',
-            'Muscle pain': 'Muscle_pain',
-            'Joint pain': 'Joint_pain',
-            'Weakness': 'Fatigue',
-            'Dizziness': 'Headache',
-            'Loss of appetite': 'Loss_of_appetite',
-            'Body pain': 'Muscle_pain',
-            'Weight loss': 'Weight_loss',
-            'Chest pain': 'Chest_pain',
-            'Cough': 'Cough',
-            'Shortness of breath': 'Shortness_of_breath',
-            'Chest tightness': 'Chest_pain',
-            'Runny nose': 'Runny_nose',
-            'Sore throat': 'Sore_throat',
-            'Sneezing': 'Runny_nose',
-            'Wheezing': 'Wheezing',
-            'Loss of smell': 'Runny_nose',
-            'Loss of taste': 'Runny_nose',
-            'Persistent cough (3 weeks+)': 'Persistent_cough',
-            'Cough with blood': 'Cough_blood',
-            'Chest pain when breathing': 'Chest_pain',
-            'Breathlessness': 'Shortness_of_breath',
-            'Cough lasting more than 3 weeks': 'Persistent_cough',
-            'Coughing up blood': 'Cough_blood',
-            'Breathing difficulty': 'Shortness_of_breath',
-            'Diarrhea': 'Diarrhea',
-            'Abdominal pain': 'Abdominal_pain',
-            'Bloating': 'Abdominal_pain',
-            'Constipation': 'Abdominal_pain',
-            'Heartburn': 'Abdominal_pain',
-            'Blood in stool': 'Diarrhea',
-            'Difficulty swallowing': 'Sore_throat',
-            'Excessive thirst': 'Diabetes',
-            'Frequent urination': 'Diabetes',
-            'Abdominal cramps': 'Abdominal_pain',
-            'Rash': 'Rash',
-            'Itching': 'Rash',
-            'Yellow skin/eyes': 'Rash',
-            'Skin discoloration': 'Rash',
-            'Hives': 'Rash',
-            'Swelling': 'Rash',
-            'Easy bruising': 'Rash',
-            'Red spots on skin': 'Rash',
-            'Eye pain': 'Headache',
-            'Red eyes': 'Rash'
-        }
-        
-        # Encode symptoms
-        for symptom_category, symptoms_list in symptoms_dict.items():
-            for symptom in symptoms_list:
-                if symptom in symptom_mapping:
-                    feature_name = symptom_mapping[symptom]
-                    if feature_name in self.symptom_features:
-                        idx = self.symptom_features.index(feature_name)
-                        input_features[idx] = 1
-        
-        # Add demographic features
-        if 'Age' in self.symptom_features:
-            idx = self.symptom_features.index('Age')
-            input_features[idx] = min(age / 100, 1)  # Normalize age
-        
-        if 'Smoking' in self.symptom_features:
-            idx = self.symptom_features.index('Smoking')
-            input_features[idx] = 1 if smoking else 0
-        
-        if 'Diabetes' in self.symptom_features:
-            idx = self.symptom_features.index('Diabetes')
-            input_features[idx] = 1 if diabetes else 0
-        
-        # Make prediction
-        prediction = self.model.predict([input_features])[0]
-        probabilities = self.model.predict_proba([input_features])[0]
-        
-        predicted_disease = self.label_encoder.inverse_transform([prediction])[0]
-        
-        # Get top 3 predictions
-        top_3_idx = np.argsort(probabilities)[-3:][::-1]
-        top_3_diseases = self.label_encoder.inverse_transform(top_3_idx)
-        top_3_probs = probabilities[top_3_idx]
-        
-        return predicted_disease, list(zip(top_3_diseases, top_3_probs)), input_features
-    
-    def get_feature_importance(self):
-        """Get feature importance from the model"""
-        if self.model is None:
-            return None
-        
-        importance_df = pd.DataFrame({
-            'feature': self.symptom_features,
-            'importance': self.model.feature_importances_
-        }).sort_values('importance', ascending=False)
-        
-        return importance_df
+# ---------- ऐप टाइटल ----------
+st.set_page_config(page_title="उन्नत लक्षण-आधारित बीमारी जांचकर्ता", page_icon="🏥", layout="wide")
+st.title("🏥 उन्नत लक्षण-आधारित बीमारी जांचकर्ता")
+st.write("लक्षण चुनें और संभावित बीमारी के जोखिमों को विस्तृत विश्लेषण के साथ देखें।")
 
-# Initialize ML model
-ml_predictor = SymptomPredictor()
-
-# ---------- APP TITLE ----------
-st.set_page_config(page_title="AI-Powered Symptom-Based Disease Checker", page_icon="🤖", layout="wide")
-st.title("🤖 AI-Powered Symptom-Based Disease Checker")
-st.write("Select symptoms and get AI-powered disease predictions with detailed analysis.")
-
-# ---------- USER DETAILS FORM ----------
+# ---------- उपयोगकर्ता विवरण फॉर्म ----------
 with st.form("user_form"):
     col1, col2 = st.columns(2)
     with col1:
-        name = st.text_input("👤 Full Name")
-        age = st.number_input("🎂 Age", min_value=0, max_value=120, step=1)
-        gender = st.radio("⚧ Gender", ["Male", "Female", "Other"])
-        mobile = st.text_input("📱 Mobile Number")
-        weight = st.number_input("⚖ Weight (kg)", min_value=1, max_value=300)
-        height = st.number_input("📏 Height (cm)", min_value=50, max_value=250)
+        name = st.text_input("👤 पूरा नाम")
+        age = st.number_input("🎂 उम्र", min_value=0, max_value=120, step=1)
+        gender = st.radio("⚧ लिंग", ["पुरुष", "महिला", "अन्य"])
+        mobile = st.text_input("📱 मोबाइल नंबर")
+        weight = st.number_input("⚖ वजन (किलोग्राम)", min_value=1, max_value=300)
+        height = st.number_input("📏 लंबाई (सेंटीमीटर)", min_value=50, max_value=250)
         
     with col2:
-        st.subheader("🩺 Medical History")
-        bp = st.checkbox("High Blood Pressure")
-        diabetes = st.checkbox("Diabetes")
-        heart = st.checkbox("Heart Issues")
-        thyroid = st.checkbox("Thyroid Issues")
-        asthma = st.checkbox("Asthma/Respiratory Issues")
-        kidney = st.checkbox("Kidney Disease")
-        liver = st.checkbox("Liver Disease")
-        cancer_history = st.checkbox("Family History of Cancer")
-        tb_history = st.checkbox("Family History of TB")
-        hiv_immune = st.checkbox("HIV/Weakened Immune System")
-        location = st.text_input("📍 Location / City")
+        st.subheader("🩺 चिकित्सा इतिहास")
+        bp = st.checkbox("उच्च रक्तचाप")
+        diabetes = st.checkbox("मधुमेह")
+        heart = st.checkbox("हृदय संबंधी समस्याएं")
+        thyroid = st.checkbox("थायराइड समस्याएं")
+        asthma = st.checkbox("अस्थमा/श्वसन संबंधी समस्याएं")
+        kidney = st.checkbox("किडनी रोग")
+        liver = st.checkbox("लिवर रोग")
+        cancer_history = st.checkbox("कैंसर का पारिवारिक इतिहास")
+        location = st.text_input("📍 स्थान / शहर")
 
-    st.subheader("🧍 Select Symptoms")
+    st.subheader("🧍 लक्षण चुनें")
 
-    # ---------- ENHANCED SYMPTOM LISTS ----------
+    # ---------- उन्नत लक्षण सूची ----------
     fever_symptoms = [
-        "Fever", "Chills", "Sweating", "Increased body temperature", 
-        "Intermittent fever", "High fever (104°F+)", "Mild fever (100-101°F)",
-        "Night sweats", "Morning fever"
+        "बुखार", "ठंड लगना", "पसीना आना", "शरीर का तापमान बढ़ना", 
+        "बुखार आना-जाना", "तेज बुखार (104°F+)", "हल्का बुखार (100-101°F)"
     ]
     
     basic_symptoms = [
-        "Fatigue", "Headache", "Nausea", "Vomiting", 
-        "Muscle pain", "Joint pain", "Weakness", "Dizziness",
-        "Loss of appetite", "Body pain", "Weight loss", "Chest pain"
+        "थकान", "सिरदर्द", "मतली", "उल्टी", 
+        "मांसपेशियों में दर्द", "जोड़ों में दर्द", "कमजोरी", "चक्कर आना",
+        "भूख न लगना", "शरीर में दर्द"
     ]
     
     respiratory_symptoms = [
-        "Cough", "Shortness of breath", "Chest tightness", "Runny nose", 
-        "Sore throat", "Sneezing", "Wheezing", "Loss of smell", "Loss of taste",
-        "Persistent cough (3 weeks+)", "Cough with blood", "Chest pain",
-        "Breathlessness", "Chest pain when breathing"
-    ]
-    
-    tuberculosis_symptoms = [
-        "Cough lasting more than 3 weeks", "Coughing up blood", "Chest pain",
-        "Breathing difficulty", "Night sweats", "Intermittent fever",
-        "Weight loss", "Loss of appetite", "Fatigue and weakness",
-        "Chest pain when breathing or coughing"
+        "खांसी", "सांस लेने में तकलीफ", "छाती में जकड़न", "बहती नाक", 
+        "गले में खराश", "छींक आना", "घरघराहट", "गंध न आना", "स्वाद न आना"
     ]
     
     digestive_symptoms = [
-        "Diarrhea", "Abdominal pain", "Bloating", "Constipation", "Heartburn", 
-        "Blood in stool", "Difficulty swallowing", "Excessive thirst", 
-        "Frequent urination", "Abdominal cramps"
+        "दस्त", "पेट दर्द", "पेट फूलना", "कब्ज", "सीने में जलन", 
+        "मल में खून", "निगलने में कठिनाई", "अत्यधिक प्यास लगना", 
+        "बार-बार पेशाब आना", "पेट में ऐंठन"
     ]
     
     skin_symptoms = [
-        "Rash", "Itching", "Yellow skin/eyes", "Skin discoloration",
-        "Hives", "Swelling", "Easy bruising", "Night sweats",
-        "Red spots on skin", "Eye pain", "Red eyes"
+        "चकत्ते", "खुजली", "पीली त्वचा/आंखें", "त्वचा का रंग बदलना",
+        "पित्ती", "सूजन", "आसानी से चोट लगना", "रात को पसीना आना",
+        "त्वचा पर लाल धब्बे", "आंखों में दर्द", "आंखों का लाल होना"
     ]
     
     neurological_symptoms = [
-        "Confusion", "Memory problems", "Numbness", "Tingling sensation",
-        "Vision problems", "Hearing problems", "Balance issues", "Seizures",
-        "Speech difficulties", "Tremors", "Severe headache"
+        "भ्रम", "याददाश्त की समस्या", "सुन्नता", "झुनझुनी सनसनी",
+        "दृष्टि संबंधी समस्याएं", "सुनने में समस्या", "संतुलन की समस्या", "दौरे",
+        "बोलने में कठिनाई", "कंपन", "तेज सिरदर्द"
     ]
     
     heart_symptoms = [
-        "Chest pain/pressure", "Pain radiating to arm/jaw/back/neck/throat", 
-        "Shortness of breath", "Rapid/irregular heartbeat", "Swelling in legs/ankles/feet",
-        "Reduced exercise ability", "Persistent cough", "Abdominal swelling",
-        "Rapid weight gain", "Cold sweats", "Palpitations"
+        "सीने में दर्द/दबाव", "बांह/जबड़े/पीठ/गर्दन/गले में दर्द फैलना", 
+        "सांस लेने में तकलीफ", "तेज/अनियमित धड़कन", "पैर/टखनों/पैरों में सूजन",
+        "व्यायाम करने की क्षमता कम होना", "लगातार खांसी", "पेट में सूजन",
+        "तेजी से वजन बढ़ना", "ठंडे पसीने आना", "धड़कन तेज होना"
     ]
     
     cancer_symptoms = [
-        "Breast lump/thickening", "Unusual nipple discharge", "Pelvic pain/bloating",
-        "Abdominal pain/bloating", "Prostate issues", "Testicular lumps/swelling",
-        "Unusual bleeding/bruising", "Persistent pain", "Mouth sores/bleeding/numbness",
-        "Persistent cough/hoarseness", "Unexplained weight loss", "Swelling/lumps",
-        "Skin changes/jaundice/new moles", "Persistent headaches", "Extreme fatigue",
-        "Vision/hearing problems", "Difficulty swallowing", "Changes in bowel habits"
+        "स्तन में गांठ/मोटापन", "असामान्य निप्पल डिस्चार्ज", "श्रोणि में दर्द/सूजन",
+        "पेट दर्द/सूजन", "प्रोस्टेट समस्याएं", "अंडकोष में गांठ/सूजन",
+        "असामान्य रक्तस्राव/चोट", "लगातार दर्द", "मुंह के छाले/रक्तस्राव/सुन्नता",
+        "लगातार खांसी/आवाज बैठना", "बिना कारण वजन कम होना", "सूजन/गांठ",
+        "त्वचा में बदलाव/पीलिया/नए तिल", "लगातार सिरदर्द", "अत्यधिक थकान",
+        "दृष्टि/श्रवण संबंधी समस्याएं", "निगलने में कठिनाई", "मल त्याग की आदतों में बदलाव"
     ]
 
-    # User symptom selection
-    st.subheader("🌡️ Fever and Infection Symptoms")
-    selected_fever = st.multiselect("Fever Symptoms", fever_symptoms)
+    # उपयोगकर्ता लक्षण चयन
+    st.subheader("🌡️ बुखार और संक्रमण संबंधी लक्षण")
+    selected_fever = st.multiselect("बुखार के लक्षण", fever_symptoms)
     
-    st.subheader("🔍 Other Symptoms")
-    selected_basic = st.multiselect("General Symptoms", basic_symptoms)
-    selected_respiratory = st.multiselect("Respiratory Symptoms", respiratory_symptoms)
-    selected_tuberculosis = st.multiselect("Tuberculosis (TB) Symptoms", tuberculosis_symptoms)
-    selected_digestive = st.multiselect("Digestive Symptoms", digestive_symptoms)
-    selected_skin = st.multiselect("Skin and Appearance Symptoms", skin_symptoms)
-    selected_neurological = st.multiselect("Neurological Symptoms", neurological_symptoms)
-    selected_cancer = st.multiselect("Cancer Symptoms", cancer_symptoms)
-    selected_heart = st.multiselect("Heart and Circulatory Symptoms", heart_symptoms)
+    st.subheader("🔍 अन्य लक्षण")
+    selected_basic = st.multiselect("सामान्य लक्षण", basic_symptoms)
+    selected_respiratory = st.multiselect("श्वसन संबंधी लक्षण", respiratory_symptoms)
+    selected_digestive = st.multiselect("पाचन संबंधी लक्षण", digestive_symptoms)
+    selected_skin = st.multiselect("त्वचा और रूप संबंधी लक्षण", skin_symptoms)
+    selected_neurological = st.multiselect("न्यूरोलॉजिकल लक्षण", neurological_symptoms)
+    selected_cancer = st.multiselect("कैंसर के लक्षण", cancer_symptoms)
+    selected_heart = st.multiselect("हृदय और संचार संबंधी लक्षण", heart_symptoms)
 
-    # Additional information
-    st.subheader("📋 Additional Information")
+    # अतिरिक्त जानकारी
+    st.subheader("📋 अतिरिक्त जानकारी")
     col3, col4 = st.columns(2)
     with col3:
-        symptom_duration = st.selectbox("How long have you had these symptoms?", 
-                                      ["Less than 1 week", "1-2 weeks", "2-4 weeks", "1-3 months", "More than 3 months"])
-        severity = st.select_slider("Symptom Severity", options=["Mild", "Moderate", "Severe"])
-        fever_pattern = st.selectbox("Fever Pattern", 
-                                   ["Continuous fever", "Intermittent fever", "Low in morning/high in evening", "Night fever", "No specific pattern"])
+        symptom_duration = st.selectbox("आपको ये लक्षण कितने समय से हैं?", 
+                                      ["1 सप्ताह से कम", "1-2 सप्ताह", "2-4 सप्ताह", "1-3 महीने", "3 महीने से अधिक"])
+        severity = st.select_slider("लक्षणों की गंभीरता", options=["हल्के", "मध्यम", "गंभीर"])
+        fever_pattern = st.selectbox("बुखार का पैटर्न", 
+                                   ["लगातार बुखार", "बुखार आना-जाना", "सुबह कम/शाम को ज्यादा", "कोई विशेष पैटर्न नहीं"])
     with col4:
-        smoking = st.checkbox("Smoker")
-        alcohol = st.checkbox("Regular Alcohol Consumption")
-        exercise = st.selectbox("Exercise Frequency", 
-                              ["Never", "Occasionally", "1-2 times/week", "3-5 times/week", "Daily"])
-        recent_travel = st.checkbox("Recent travel history")
-        tb_contact = st.checkbox("Been in contact with TB patient")
+        smoking = st.checkbox("धूम्रपान करने वाला")
+        alcohol = st.checkbox("नियमित शराब का सेवन")
+        exercise = st.selectbox("व्यायाम की आवृत्ति", 
+                              ["कभी नहीं", "कभी-कभी", "सप्ताह में 1-2 बार", "सप्ताह में 3-5 बार", "रोज"])
+        recent_travel = st.checkbox("हाल ही में यात्रा की है")
 
-    submitted = st.form_submit_button("🔍 Analyze Symptoms")
+    submitted = st.form_submit_button("🔍 लक्षणों का विश्लेषण करें")
 
-# ---------- BMI CALCULATION ----------
+# ---------- बीएमआई गणना ----------
 def calculate_bmi(weight, height_cm):
     height_m = height_cm / 100
     bmi = weight / (height_m ** 2)
     if bmi < 18.5:
-        category = "Underweight"
+        category = "कम वजन"
     elif 18.5 <= bmi < 25:
-        category = "Normal"
+        category = "सामान्य"
     elif 25 <= bmi < 30:
-        category = "Overweight"
+        category = "अधिक वजन"
     else:
-        category = "Obese"
+        category = "मोटापा"
     return bmi, category
 
-# ---------- ENHANCED DIAGNOSIS LOGIC ----------
-def enhanced_diagnose(fever, basic, respiratory, tuberculosis, digestive, skin, neurological, cancer, heart, age, medical_history, lifestyle, fever_pattern, recent_travel, tb_contact):
+# ---------- उन्नत निदान लॉजिक ----------
+def enhanced_diagnose(fever, basic, respiratory, digestive, skin, neurological, cancer, heart, age, medical_history, lifestyle, fever_pattern, recent_travel):
     conditions = []
     risk_factors = []
     recommendations = []
     risk_score = 0
     
-    all_symptoms = fever + basic + respiratory + tuberculosis + digestive + skin + neurological + cancer + heart
+    all_symptoms = fever + basic + respiratory + digestive + skin + neurological + cancer + heart
     symptom_count = len(all_symptoms)
     
-    # Risk factors from medical history and lifestyle
-    if medical_history.get('bp'): risk_factors.append("High Blood Pressure")
-    if medical_history.get('diabetes'): risk_factors.append("Diabetes")
-    if medical_history.get('heart'): risk_factors.append("Heart Disease History")
-    if medical_history.get('smoking'): risk_factors.append("Smoking")
-    if medical_history.get('alcohol'): risk_factors.append("Alcohol Use")
-    if medical_history.get('hiv_immune'): risk_factors.append("Weakened Immune System")
-    if recent_travel: risk_factors.append("Recent Travel")
-    if tb_contact: risk_factors.append("Contact with TB Patient")
+    # चिकित्सा इतिहास और जीवनशैली से जोखिम कारक
+    if medical_history.get('bp'): risk_factors.append("उच्च रक्तचाप")
+    if medical_history.get('diabetes'): risk_factors.append("मधुमेह")
+    if medical_history.get('heart'): risk_factors.append("हृदय रोग इतिहास")
+    if medical_history.get('smoking'): risk_factors.append("धूम्रपान")
+    if medical_history.get('alcohol'): risk_factors.append("शराब का सेवन")
+    if recent_travel: risk_factors.append("हाल की यात्रा")
     
     # -------------------------------
-    # TUBERCULOSIS (TB) ANALYSIS
+    # बुखार और संक्रमण विश्लेषण
     # -------------------------------
     
-    # Major TB symptoms
-    tb_major_symptoms = ["Cough lasting more than 3 weeks", "Coughing up blood", "Night sweats", "Weight loss"]
-    tb_minor_symptoms = ["Intermittent fever", "Loss of appetite", "Fatigue and weakness", "Chest pain", "Breathing difficulty"]
+    # सामान्य बुखार (Normal Fever)
+    if "बुखार" in fever and len(fever) == 1 and len([s for s in basic if s in ["सिरदर्द", "शरीर में दर्द", "थकान"]]) >= 2:
+        conditions.append(("सामान्य बुखार (वायरल फीवर)", "प्रतिरक्षा प्रणाली", "कम"))
+        recommendations.append("आराम करें, हाइड्रेटेड रहें, और पैरासिटामोल लें")
     
-    tb_major_count = sum(1 for symptom in tb_major_symptoms if symptom in tuberculosis)
-    tb_minor_count = sum(1 for symptom in tb_minor_symptoms if symptom in (tuberculosis + fever + basic + respiratory))
-    
-    # TB risk assessment
-    tb_risk_score = 0
-    
-    # High risk for major symptoms
-    if tb_major_count >= 2:
-        tb_risk_score += 60
-    elif tb_major_count == 1:
-        tb_risk_score += 30
-    
-    # Moderate risk for minor symptoms
-    tb_risk_score += tb_minor_count * 10
-    
-    # Risk factors
-    if medical_history.get('tb_history'):
-        tb_risk_score += 20
-    if medical_history.get('hiv_immune'):
-        tb_risk_score += 25
-    if tb_contact:
-        tb_risk_score += 15
-    if smoking:
-        tb_risk_score += 10
-    
-    # TB diagnosis
-    if tb_risk_score >= 50:
-        risk_level = "High" if tb_risk_score >= 70 else "Medium"
-        conditions.append((f"Tuberculosis (TB) - Risk Score: {tb_risk_score}%", "Lungs and Respiratory System", risk_level))
-        recommendations.append("🚨 Get immediate Chest X-ray and Sputum test")
-        recommendations.append("Visit TB clinic for DOTS therapy")
-        recommendations.append("Wear mask to prevent infection spread")
-    
-    # -------------------------------
-    # FEVER AND INFECTION ANALYSIS
-    # -------------------------------
-    
-    # Normal Fever
-    if "Fever" in fever and len(fever) == 1 and len([s for s in basic if s in ["Headache", "Body pain", "Fatigue"]]) >= 2:
-        conditions.append(("Normal Fever (Viral Fever)", "Immune System", "Low"))
-        recommendations.append("Rest, stay hydrated, and take paracetamol")
-    
-    # Viral Fever
-    viral_fever_symptoms = ["Fever", "Headache", "Body pain", "Fatigue", "Weakness"]
+    # वायरल फीवर (Viral Fever)
+    viral_fever_symptoms = ["बुखार", "सिरदर्द", "शरीर में दर्द", "थकान", "कमजोरी"]
     viral_count = sum(1 for symptom in viral_fever_symptoms if symptom in (fever + basic))
     if viral_count >= 4:
-        conditions.append(("Viral Fever", "Immune System", "Medium"))
-        recommendations.append("Get plenty of rest and fluids")
+        conditions.append(("वायरल फीवर", "प्रतिरक्षा प्रणाली", "मध्यम"))
+        recommendations.append("भरपूर आराम करें और तरल पदार्थ लें")
     
-    # Dengue - Mosquito-borne
-    dengue_symptoms = ["High fever (104°F+)", "Severe headache", "Eye pain", "Joint pain", "Muscle pain", "Red spots on skin"]
+    # डेंगू (Dengue) - मच्छर जनित
+    dengue_symptoms = ["तेज बुखार (104°F+)", "तेज सिरदर्द", "आंखों में दर्द", "जोड़ों में दर्द", "मांसपेशियों में दर्द", "त्वचा पर लाल धब्बे"]
     dengue_count = sum(1 for symptom in dengue_symptoms if symptom in (fever + basic + skin))
     if dengue_count >= 4:
-        conditions.append(("Dengue Fever", "Blood and Immune System", "High"))
-        risk_factors.append("Mosquito-borne infection")
-        recommendations.append("🚨 Get immediate blood test and consult doctor")
-        recommendations.append("Monitor platelet count")
+        conditions.append(("डेंगू बुखार", "रक्त और प्रतिरक्षा प्रणाली", "उच्च"))
+        risk_factors.append("मच्छर जनित संक्रमण")
+        recommendations.append("🚨 तुरंत रक्त जांच कराएं और डॉक्टर से संपर्क करें")
+        recommendations.append("प्लेटलेट काउंट की निगरानी करें")
     
-    # Malaria - Mosquito-borne
-    malaria_symptoms = ["Intermittent fever", "Chills", "Sweating", "Headache", "Nausea", "Fatigue"]
+    # मलेरिया (Malaria) - मच्छर जनित
+    malaria_symptoms = ["बुखार आना-जाना", "ठंड लगना", "पसीना आना", "सिरदर्द", "मतली", "थकान"]
     malaria_count = sum(1 for symptom in malaria_symptoms if symptom in (fever + basic))
-    if malaria_count >= 4 and fever_pattern in ["Intermittent fever", "Low in morning/high in evening"]:
-        conditions.append(("Malaria", "Blood and Liver", "High"))
-        risk_factors.append("Mosquito-borne infection")
-        recommendations.append("🚨 Get malaria blood test")
-        recommendations.append("Start anti-malarial medications")
+    if malaria_count >= 4 and fever_pattern in ["बुखार आना-जाना", "सुबह कम/शाम को ज्यादा"]:
+        conditions.append(("मलेरिया", "रक्त और लिवर", "उच्च"))
+        risk_factors.append("मच्छर जनित संक्रमण")
+        recommendations.append("🚨 मलेरिया ब्लड टेस्ट कराएं")
+        recommendations.append("एंटी-मलेरियल दवाएं शुरू करें")
     
-    # Typhoid - Water/food borne
-    typhoid_symptoms = ["High fever (104°F+)", "Headache", "Weakness", "Abdominal pain", "Diarrhea or constipation", "Loss of appetite"]
+    # टाइफाइड (Typhoid) - जल/भोजन जनित
+    typhoid_symptoms = ["तेज बुखार (104°F+)", "सिरदर्द", "कमजोरी", "पेट दर्द", "दस्त या कब्ज", "भूख न लगना"]
     typhoid_count = sum(1 for symptom in typhoid_symptoms if symptom in (fever + basic + digestive))
     if typhoid_count >= 4:
-        conditions.append(("Typhoid Fever", "Digestive System and Blood", "High"))
-        risk_factors.append("Contaminated food/water")
-        recommendations.append("🚨 Get Widal test and start antibiotics")
-        recommendations.append("Maintain proper hygiene")
+        conditions.append(("टाइफाइड बुखार", "पाचन तंत्र और रक्त", "उच्च"))
+        risk_factors.append("दूषित भोजन/पानी")
+        recommendations.append("🚨 विडाल टेस्ट कराएं और एंटीबायोटिक्स शुरू करें")
+        recommendations.append("हाइजीन का विशेष ध्यान रखें")
     
-    # Chikungunya - Mosquito-borne
-    if "Joint pain" in basic and "Fever" in fever and "Red spots on skin" in skin:
-        conditions.append(("Chikungunya", "Joints and Immune System", "Medium"))
-        recommendations.append("Get physiotherapy for joint pain")
+    # चिकनगुनिया (Chikungunya) - मच्छर जनित
+    if "जोड़ों में दर्द" in basic and "बुखार" in fever and "त्वचा पर लाल धब्बे" in skin:
+        conditions.append(("चिकनगुनिया", "जोड़ और प्रतिरक्षा प्रणाली", "मध्यम"))
+        recommendations.append("जोड़ों के दर्द के लिए फिजियोथेरेपी लें")
     
     # -------------------------------
-    # OTHER CONDITIONS
+    # अन्य स्थितियां
     # -------------------------------
     
-    # Respiratory infections
+    # श्वसन संक्रमण
     respiratory_symptom_count = len(respiratory)
-    if respiratory_symptom_count >= 2 and "Fever" in fever:
-        if "Cough" in respiratory and "Shortness of breath" in respiratory:
-            conditions.append(("Respiratory Infection (COVID-19/Influenza/Pneumonia)", "Respiratory System", "High"))
-        if "Wheezing" in respiratory and "Shortness of breath" in respiratory:
-            conditions.append(("Asthma/Bronchitis", "Respiratory System", "Medium"))
+    if respiratory_symptom_count >= 2 and "बुखार" in fever:
+        if "खांसी" in respiratory and "सांस लेने में तकलीफ" in respiratory:
+            conditions.append(("श्वसन संक्रमण (COVID-19/इन्फ्लुएंजा/निमोनिया)", "श्वसन प्रणाली", "उच्च"))
+        if "घरघराहट" in respiratory and "सांस लेने में तकलीफ" in respiratory:
+            conditions.append(("अस्थमा/ब्रोंकाइटिस", "श्वसन प्रणाली", "मध्यम"))
     
-    # Digestive infections
+    # पाचन संक्रमण
     digestive_symptom_count = len(digestive)
-    if digestive_symptom_count >= 3 and "Fever" in fever:
-        if "Diarrhea" in digestive and "Abdominal pain" in digestive:
-            conditions.append(("Gastroenteritis", "Digestive System", "Medium"))
-        if "Blood in stool" in digestive:
-            conditions.append(("Dysentery/Enteritis", "Digestive System", "High"))
+    if digestive_symptom_count >= 3 and "बुखार" in fever:
+        if "दस्त" in digestive and "पेट दर्द" in digestive:
+            conditions.append(("गैस्ट्रोएंटेराइटिस", "पाचन तंत्र", "मध्यम"))
+        if "मल में खून" in digestive:
+            conditions.append(("पेचिश/आंत्रशोथ", "पाचन तंत्र", "उच्च"))
     
-    # Hepatitis
-    if "Yellow skin/eyes" in skin and "Fever" in fever:
-        conditions.append(("Hepatitis/Liver Infection", "Liver", "High"))
+    # हेपेटाइटिस
+    if "पीली त्वचा/आंखें" in skin and "बुखार" in fever:
+        conditions.append(("हेपेटाइटिस/लिवर संक्रमण", "लिवर", "उच्च"))
     
-    # Cardiovascular risk assessment
+    # हृदय संबंधी जोखिम मूल्यांकन
     heart_symptom_count = len(heart)
     if heart_symptom_count >= 2:
-        conditions.append(("Cardiovascular Issue", "Heart/Circulatory System", "High"))
-        if "Chest pain/pressure" in heart:
-            recommendations.append("🚨 Seek immediate medical attention for chest pain")
+        conditions.append(("हृदय संबंधी समस्या", "हृदय/संचार प्रणाली", "उच्च"))
+        if "सीने में दर्द/दबाव" in heart:
+            recommendations.append("🚨 सीने में दर्द के लिए तुरंत चिकित्सकीय सहायता लें")
     
-    # Cancer risk assessment
+    # कैंसर जोखिम मूल्यांकन
     cancer_symptom_count = len(cancer)
     if cancer_symptom_count >= 2:
-        risk_level = "High" if cancer_symptom_count >= 3 or medical_history.get('cancer_history') else "Medium"
-        conditions.append(("Possible Cancer Indicators", "Multiple Systems", risk_level))
-        recommendations.append("Consult with oncologist for further evaluation")
+        risk_level = "उच्च" if cancer_symptom_count >= 3 or medical_history.get('cancer_history') else "मध्यम"
+        conditions.append(("संभावित कैंसर संकेतक", "कई प्रणालियां", risk_level))
+        recommendations.append("आगे मूल्यांकन के लिए ऑन्कोलॉजिस्ट से परामर्श करें")
     
-    # Lifestyle risk assessment
-    if lifestyle.get('exercise') in ["Never", "Occasionally"] and medical_history.get('bp'):
-        risk_factors.append("Sedentary Lifestyle")
-        recommendations.append("Increase physical activity to 150 minutes per week")
+    # जीवनशैली जोखिम मूल्यांकन
+    if lifestyle.get('exercise') in ["कभी नहीं", "कभी-कभी"] and medical_history.get('bp'):
+        risk_factors.append("निष्क्रिय जीवनशैली")
+        recommendations.append("शारीरिक गतिविधि को सप्ताह में 150 मिनट तक बढ़ाएं")
     
-    # Calculate comprehensive risk score
+    # व्यापक जोखिम स्कोर की गणना
     base_score = min(symptom_count * 4, 40)
     age_score = min(age * 0.5, 20)
     medical_score = len(risk_factors) * 5
     lifestyle_score = 0
     if lifestyle.get('smoking'): lifestyle_score += 10
     if lifestyle.get('alcohol'): lifestyle_score += 5
-    if lifestyle.get('exercise') in ["Never", "Occasionally"]: lifestyle_score += 5
+    if lifestyle.get('exercise') in ["कभी नहीं", "कभी-कभी"]: lifestyle_score += 5
     
-    # Additional scores for fever and TB
+    # बुखार के लिए अतिरिक्त स्कोर
     fever_score = len(fever) * 3
-    tb_score = min(tb_risk_score / 2, 20)  # Include TB risk in overall score
-    risk_score = min(base_score + age_score + medical_score + lifestyle_score + fever_score + tb_score, 95)
+    risk_score = min(base_score + age_score + medical_score + lifestyle_score + fever_score, 95)
     
-    # General recommendations
-    if "Fever" in fever:
-        recommendations.append("Monitor temperature regularly")
-        recommendations.append("Drink plenty of fluids")
-    
-    if tb_risk_score >= 30:
-        recommendations.append("Visit health center for TB screening")
+    # सामान्य सिफारिशें
+    if "बुखार" in fever:
+        recommendations.append("तापमान की नियमित निगरानी करें")
+        recommendations.append("पर्याप्त मात्रा में तरल पदार्थ पिएं")
     
     if risk_score > 50:
-        recommendations.append("Schedule appointment with primary care physician")
+        recommendations.append("प्राथमिक देखभाल चिकित्सक के साथ अपॉइंटमेंट शेड्यूल करें")
     if symptom_count > 5:
-        recommendations.append("Consider comprehensive medical evaluation")
+        recommendations.append("व्यापक चिकित्सा मूल्यांकन पर विचार करें")
     
-    return conditions, risk_factors, recommendations, risk_score, tb_risk_score
+    return conditions, risk_factors, recommendations, risk_score
 
-# ---------- SHOW RESULTS ----------
+# ---------- परिणाम दिखाएं ----------
 if submitted:
     if not name or not mobile:
-        st.error("❌ Please enter your Name and Mobile Number.")
+        st.error("❌ कृपया अपना नाम और मोबाइल नंबर दर्ज करें।")
     else:
-        # Calculate BMI
+        # बीएमआई की गणना करें
         bmi_value, bmi_category = calculate_bmi(weight, height)
         
-        # Prepare data for diagnosis
+        # निदान के लिए डेटा तैयार करें
         medical_history = {
             'bp': bp, 'diabetes': diabetes, 'heart': heart, 'thyroid': thyroid,
-            'asthma': asthma, 'kidney': kidney, 'liver': liver, 'cancer_history': cancer_history,
-            'tb_history': tb_history, 'hiv_immune': hiv_immune, 'smoking': smoking
+            'asthma': asthma, 'kidney': kidney, 'liver': liver, 'cancer_history': cancer_history
         }
         
         lifestyle = {
             'smoking': smoking, 'alcohol': alcohol, 'exercise': exercise
         }
         
-        # Perform traditional diagnosis
-        conditions, risk_factors, recommendations, risk_score, tb_risk_score = enhanced_diagnose(
-            selected_fever, selected_basic, selected_respiratory, selected_tuberculosis,
-            selected_digestive, selected_skin, selected_neurological, selected_cancer, 
-            selected_heart, age, medical_history, lifestyle, fever_pattern, recent_travel, tb_contact
+        # निदान करें
+        conditions, risk_factors, recommendations, risk_score = enhanced_diagnose(
+            selected_fever, selected_basic, selected_respiratory, selected_digestive, 
+            selected_skin, selected_neurological, selected_cancer, 
+            selected_heart, age, medical_history, lifestyle, fever_pattern, recent_travel
         )
 
-        # Prepare symptoms for ML prediction
-        symptoms_dict = {
-            'fever': selected_fever,
-            'basic': selected_basic,
-            'respiratory': selected_respiratory,
-            'tuberculosis': selected_tuberculosis,
-            'digestive': selected_digestive,
-            'skin': selected_skin,
-            'neurological': selected_neurological,
-            'cancer': selected_cancer,
-            'heart': selected_heart
-        }
+        # परिणाम प्रदर्शित करें
+        st.success("## 📊 विश्लेषण परिणाम")
         
-        # Get ML prediction
-        with st.spinner("🤖 AI Model Analyzing Symptoms..."):
-            # Train model if not already trained
-            if not ml_predictor.is_trained:
-                accuracy = ml_predictor.train_model()
-                st.sidebar.success(f"✅ ML Model Trained (Accuracy: {accuracy:.2%})")
-            
-            # Get prediction
-            ml_prediction, top_predictions, feature_vector = ml_predictor.predict(
-                symptoms_dict, age, smoking, diabetes
-            )
-        
-        # Display results
-        st.success("## 📊 Analysis Results")
-        
-        # BMI and basic info
+        # बीएमआई और बुनियादी जानकारी
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("BMI Score", f"{bmi_value:.1f}", bmi_category)
+            st.metric("बीएमआई स्कोर", f"{bmi_value:.1f}", bmi_category)
         with col2:
-            st.metric("Overall Risk Score", f"{risk_score:.1f}%")
+            st.metric("कुल जोखिम स्कोर", f"{risk_score:.1f}%")
         with col3:
             total_symptoms = len(selected_fever + selected_basic + selected_respiratory + 
-                               selected_tuberculosis + selected_digestive + selected_skin + 
-                               selected_neurological + selected_cancer + selected_heart)
-            st.metric("Symptoms Reported", total_symptoms)
+                               selected_digestive + selected_skin + selected_neurological + 
+                               selected_cancer + selected_heart)
+            st.metric("लक्षणों की सूचना", total_symptoms)
         
-        # AI Prediction Section
-        st.info("## 🤖 AI Disease Prediction")
-        col4, col5 = st.columns(2)
-        
-        with col4:
-            st.subheader("Top Predictions")
-            for i, (disease, prob) in enumerate(top_predictions):
-                confidence_color = "🔴" if prob > 0.7 else "🟡" if prob > 0.4 else "🟢"
-                st.write(f"{confidence_color} **{disease.replace('_', ' ')}**")
-                st.write(f"   Confidence: {prob:.1%}")
-                st.progress(float(prob))
-        
-        with col5:
-            st.subheader("Prediction Insights")
-            st.write(f"**Primary Prediction:** {ml_prediction.replace('_', ' ')}")
-            
-            # Show key influencing factors
-            feature_importance = ml_predictor.get_feature_importance()
-            if feature_importance is not None:
-                st.write("**Key Factors Considered:**")
-                top_factors = feature_importance.head(5)
-                for _, row in top_factors.iterrows():
-                    if feature_vector[ml_predictor.symptom_features.index(row['feature'])] == 1:
-                        st.write(f"• {row['feature'].replace('_', ' ')}")
-        
-        # TB Special Analysis
-        if selected_tuberculosis:
-            st.info("## 🦠 Tuberculosis (TB) Analysis")
-            tb_symptoms_text = ", ".join(selected_tuberculosis)
-            st.write(f"**Selected TB Symptoms:** {tb_symptoms_text}")
-            st.write(f"**TB Risk Score:** {tb_risk_score}%")
-            
-            if tb_risk_score >= 70:
-                st.error("🔴 **High TB Risk:** Get immediate TB testing")
-            elif tb_risk_score >= 50:
-                st.warning("🟡 **Medium TB Risk:** TB screening advised")
-            elif tb_risk_score >= 30:
-                st.info("🟢 **Low TB Risk:** Monitoring advised")
-        
-        # Fever Analysis
+        # बुखार विश्लेषण
         if selected_fever:
-            st.info("## 🌡️ Fever Analysis")
+            st.info("## 🌡️ बुखार विश्लेषण")
             fever_symptoms_text = ", ".join(selected_fever)
-            st.write(f"**Selected Fever Symptoms:** {fever_symptoms_text}")
-            st.write(f"**Fever Pattern:** {fever_pattern}")
+            st.write(f"**चयनित बुखार लक्षण:** {fever_symptoms_text}")
+            st.write(f"**बुखार पैटर्न:** {fever_pattern}")
+            
+            # बुखार प्रकार का सारांश
+            if any("डेंगू" in cond[0] for cond in conditions):
+                st.warning("🔴 **डेंगू के लक्षण:** उच्च बुखार, सिरदर्द, आंखों में दर्द, जोड़ों में दर्द")
+            if any("मलेरिया" in cond[0] for cond in conditions):
+                st.warning("🔴 **मलेरिया के लक्षण:** बुखार आना-जाना, ठंड लगना, पसीना आना")
+            if any("टाइफाइड" in cond[0] for cond in conditions):
+                st.warning("🔴 **टाइफाइड के लक्षण:** लगातार उच्च बुखार, पेट दर्द, कमजोरी")
         
-        # Conditions detected
+        # पाए गए रोग
         if conditions:
-            st.warning("## 🚨 Possible Conditions Detected")
+            st.warning("## 🚨 संभावित स्थितियां पाई गईं")
             for condition, system, risk_level in conditions:
-                risk_color = "🔴" if risk_level == "High" else "🟡" if risk_level == "Medium" else "🟢"
+                risk_color = "🔴" if risk_level == "उच्च" else "🟡" if risk_level == "मध्यम" else "🟢"
                 st.write(f"{risk_color} **{condition}**")
-                st.write(f"   • Affected System: {system}")
-                st.write(f"   • Risk Level: {risk_level}")
+                st.write(f"   • प्रभावित प्रणाली: {system}")
+                st.write(f"   • जोखिम स्तर: {risk_level}")
                 st.write("")
         else:
-            st.info("## ✅ No significant disease indicators found")
+            st.info("## ✅ कोई महत्वपूर्ण बीमारी संकेतक नहीं मिले")
         
-        # Risk factors
+        # जोखिम कारक
         if risk_factors:
-            st.error("## ⚠️ Identified Risk Factors")
+            st.error("## ⚠️ पहचाने गए जोखिम कारक")
             for factor in risk_factors:
                 st.write(f"• {factor}")
         
-        # Recommendations
+        # सिफारिशें
         if recommendations:
-            st.success("## 💡 Recommendations")
+            st.success("## 💡 सिफारिशें")
             for recommendation in recommendations:
                 st.write(f"• {recommendation}")
         
-        # General health tips
-        st.info("## 🌟 General Health Tips")
-        if "Fever" in selected_fever:
-            st.write("• Get plenty of rest and stay hydrated")
-            st.write("• Monitor temperature regularly")
-            st.write("• Don't take antibiotics without doctor's advice")
+        # सामान्य स्वास्थ्य सुझाव
+        st.info("## 🌟 सामान्य स्वास्थ्य सुझाव")
+        if "बुखार" in selected_fever:
+            st.write("• भरपूर आराम करें और हाइड्रेटेड रहें")
+            st.write("• तापमान की नियमित जांच करें")
+            st.write("• डॉक्टर की सलाह के बिना एंटीबायोटिक्स न लें")
         
-        if selected_tuberculosis and tb_risk_score > 30:
-            st.write("• Visit nearby health center for TB testing")
-            st.write("• If TB is confirmed, complete full course of medication")
-        
-        if bmi_category in ["Overweight", "Obese"]:
-            st.write("• Consider weight management through balanced diet and exercise")
+        if bmi_category in ["अधिक वजन", "मोटापा"]:
+            st.write("• संतुलित आहार और व्यायाम के माध्यम से वजन प्रबंधन पर विचार करें")
         
         if age > 50:
-            st.write("• Regular health screenings recommended due to age")
+            st.write("• उम्र के कारण नियमित स्वास्थ्य जांच की सिफारिश की जाती है")
 
-        # ---------- SAVE DATA TO GOOGLE SHEET ----------
+        # ---------- गूगल शीट में डेटा सेव करें ----------
         entry_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        all_symptoms = selected_fever + selected_basic + selected_respiratory + selected_tuberculosis + selected_digestive + selected_skin + selected_neurological + selected_cancer + selected_heart
+        all_symptoms = selected_fever + selected_basic + selected_respiratory + selected_digestive + selected_skin + selected_neurological + selected_cancer + selected_heart
         condition_list = [f"{cond} ({risk})" for cond, sys, risk in conditions]
         
-        # Add ML prediction to data
-        ml_predictions_str = "; ".join([f"{disease}: {prob:.1%}" for disease, prob in top_predictions])
-        
-        # Prepare data row in exact column order
+        # सटीक कॉलम क्रम में डेटा पंक्ति तैयार करें
         data = [
             entry_time, name, age, gender, mobile, bp, diabetes, heart, thyroid,
-            asthma, kidney, liver, cancer_history, tb_history, hiv_immune, location, 
-            weight, height, ", ".join(all_symptoms), symptom_duration, severity, fever_pattern,
-            smoking, alcohol, exercise, recent_travel, tb_contact,
+            asthma, kidney, liver, cancer_history, location, weight, height,
+            ", ".join(all_symptoms), symptom_duration, severity, fever_pattern,
+            smoking, alcohol, exercise, recent_travel,
             ", ".join(condition_list), ", ".join(risk_factors), 
-            f"{risk_score:.1f}%", f"{tb_risk_score}%", ml_predictions_str,
-            f"{bmi_value:.1f}", bmi_category
+            f"{risk_score:.1f}%", f"{bmi_value:.1f}", bmi_category
         ]
         
         try:
             sheet.append_row(data)
-            st.success("✅ Your response has been recorded securely in our database.")
+            st.success("✅ आपकी प्रतिक्रिया सुरक्षित रूप से हमारे डेटाबेस में दर्ज कर दी गई है।")
         except Exception as e:
-            st.error(f"⚠️ Could not save to database: {str(e)}")
+            st.error(f"⚠️ डेटाबेस में सेव नहीं किया जा सका: {str(e)}")
 
-# ---------- SIDEBAR ----------
+# ---------- साइडबार ----------
 with st.sidebar:
-    st.header("ℹ️ About This Tool")
+    st.header("ℹ️ इस टूल के बारे में")
     st.write("""
-    **AI-Powered Features:**
-    - Machine Learning disease prediction
-    - Real-time symptom analysis
-    - Confidence scoring
-    - Pattern recognition
-    
-    **Diseases Covered:**
-    - Tuberculosis (TB)
-    - Dengue, Malaria, Typhoid
-    - Viral & Bacterial infections
-    - Respiratory diseases
-    - Cardiovascular risks
+    यह उन्नत लक्षण जांचकर्ता विशेष रूप से विश्लेषण करता है:
+    - सामान्य बुखार vs वायरल फीवर
+    - डेंगू, मलेरिया, टाइफाइड
+    - श्वसन संक्रमण
+    - पाचन विकार
+    - हृदय संबंधी जोखिम
     """)
     
-    st.header("🤖 ML Model Info")
-    if ml_predictor.is_trained:
-        st.success("✅ Model: Random Forest")
-        st.write("**Trained on:** 1000+ symptom patterns")
-        st.write("**Features:** 24 symptoms + demographics")
-        
-        # Show feature importance if available
-        if ml_predictor.model is not None:
-            with st.exp
+    st.header("🌡️ बुखार प्रकार गाइड")
+    fever_guide = {
+        "सामान्य बुखार": ["हल्का बुखार", "सिरदर्द", "शरीर दर्द"],
+        "वायरल फीवर": ["तेज बुखार", "थकान", "कमजोरी", "भूख न लगना"],
+        "डेंगू": ["तेज बुखार (104°F+)", "आंखों में दर्द", "जोड़ों में दर्द", "त्वचा पर रैश"],
+        "मलेरिया": ["बुखार आना-जाना", "ठंड लगकर बुखार आना", "पसीना आना"],
+        "टाइफाइड": ["लगातार उच्च बुखार", "पेट दर्द", "दस्त/कब्ज", "कमजोरी"]
+    }
+    
+    for fever_type, symptoms in fever_guide.items():
+        with st.expander(f"{fever_type}"):
+            for symptom in symptoms:
+                st.write(f"• {symptom}")
+    
+    st.header("🚨 आपातकालीन लक्षण")
+    st.write("""
+    तत्काल चिकित्सकीय देखभाल लें:
+    - 104°F से अधिक बुखार
+    - सांस लेने में कठिनाई
+    - गंभीर पेट दर्द
+    - लगातार उल्टी
+    - भ्रम या चक्कर आना
+    - त्वचा पर रैश के साथ बुखार
+    """)
+
+# ---------- फुटर ----------
+st.markdown("---")
+st.caption("""
+⚠️ **अस्वीकरण**: यह टूल केवल शैक्षिक और सूचनात्मक उद्देश्यों के लिए है। 
+यह चिकित्सकीय सलाह, निदान या उपचार प्रदान नहीं करता है। बुखार या गंभीर लक्षणों के 
+मामले में हमेशा योग्य स्वास्थ्य देखभाल पेशेवरों से परामर्श लें।
+""")
