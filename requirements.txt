@@ -1,4 +1,7 @@
 streamlit
-pandas
 gspread
 oauth2client
+pandas
+numpy
+scikit-learn
+google-auth
